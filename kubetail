@@ -21,6 +21,16 @@ calculate_default_namespace() {
 	echo "${KUBETAIL_NAMESPACE:-${config_namespace:-default}}"
 }
 
+# Join function that supports a multi-character separator (copied from http://stackoverflow.com/a/23673883/398441)
+function join() {
+	# $1 is return variable name
+	# $2 is sep
+	# $3... are the elements to join
+	local retname=$1 sep=$2 ret=$3
+	shift 3 || shift $(($#))
+	printf -v "$retname" "%s" "$ret${@/#/$sep}"
+}
+
 default_previous="${KUBETAIL_PREVIOUS:-false}"
 default_since="${KUBETAIL_SINCE:-10s}"
 default_namespace=$(calculate_default_namespace)
@@ -43,6 +53,7 @@ colored_output="${default_colored_output}"
 timestamps="${default_timestamps}"
 jq_selector="${default_jq_selector}"
 jq_flags="${default_jq_flags}"
+jq_colorized_prefixes=""
 skip_colors="${default_skip_colors}"
 tail="${default_tail}"
 show_color_index="${default_show_color_index}"
@@ -200,20 +211,18 @@ if [ "$#" -ne 0 ]; then
 			;;
 		--jqc)
 			jq_flags="${jq_flags} -c"
-			if [ -z "$2" ]; then
-				jq_selector="${default_jq_selector}"
-			else
-				jq_selector="$2"
-			fi
 			;;
 		--jqcolor)
 			# add colorize to jq
 			jq_flags="${jq_flags} -C"
-			if [ -z "$2" ]; then
-				jq_selector="${default_jq_selector}"
-			else
-				jq_selector="$2"
-			fi
+			# figure out colorized prefixed to extract from json
+			colorized_prefixes+=('(select(.level == "info") | "\u001b[1;36mINFO\u001b[39m: ")')
+			colorized_prefixes+=('(select(.level == "warn") | "\u001b[1;33mWARNING\u001b[39m: ")')
+			colorized_prefixes+=('(select(.level == "error") | "\u001b[1;31mERROR\u001b[39m: ")')
+			colorized_prefixes+=('(select(.message != "") | "\u001b[1;36m\(.message)\u001b[39m - ")')
+			join jq_colorized_prefixes "," "${colorized_prefixes[@]}"
+			jq_colorized_prefixes="(${jq_colorized_prefixes}),"
+			jq_selector="del(.message, .level)"
 			;;
 		-z|--skip-colors)
 			if [ -z "$2" ]; then
@@ -259,16 +268,6 @@ else
 	echo "$usage"
 	exit 1
 fi
-
-# Join function that supports a multi-character separator (copied from http://stackoverflow.com/a/23673883/398441)
-function join() {
-	# $1 is return variable name
-	# $2 is sep
-	# $3... are the elements to join
-	local retname=$1 sep=$2 ret=$3
-	shift 3 || shift $(($#))
-	printf -v "$retname" "%s" "$ret${@/#/$sep}"
-}
 
 # Check if pod query contains a comma and we've not specified "regex" explicitly,
 # if so we convert the pod query string into a regex that matches all pods seperated by the comma
@@ -374,10 +373,6 @@ for pod in ${matching_pods[@]}; do
 			fi
 		fi
 
-		# reply="\$REPLY"
-		# if [ "z" != "z$jq_selector" ]; then
-		# 	reply='$(echo \$REPLY | jq -r ''(select(.level == "warn") | "\u001b[1;33mWARNING\u001b[39m"),(select(.level == "error") | "\u001b[1;31mERROR\u001b[39m")'' -); $REPLY'
-		# fi
 		if [ ${colored_output} == "false" ] || [ ${colored_output} == "pod" ]; then
 			colored_line="${prefix_line}\$REPLY"
 		else
@@ -389,7 +384,7 @@ for pod in ${matching_pods[@]}; do
 		if [ "z" == "z$jq_selector" ]; then
 			logs_commands+=("${kubectl_cmd} ${timestamps} | ${colorify_lines_cmd}");
 		else
-			logs_commands+=("${kubectl_cmd} | jq ${jq_flags} --unbuffered -j -r -R --stream '. as \$line | try (fromjson | ((select(.level == \"warn\") | \"\u001b[1;33mWARNING\u001b[39m\"),(select(.level == \"error\") | \"\u001b[1;31mERROR\u001b[39m\")),\" \",$jq_selector) catch \$line,\"\n\"' | ${colorify_lines_cmd}");
+			logs_commands+=("${kubectl_cmd} | jq ${jq_flags} --unbuffered -j -r -R --stream '. as \$line | try (fromjson | ${jq_colorized_prefixes}$jq_selector) catch \$line,\"\n\"' | ${colorify_lines_cmd}");
 		fi
 
 		# There are only 11 usable colors
