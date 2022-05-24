@@ -389,7 +389,7 @@ for pod in ${matching_pods[@]}; do
 		if [ "z" == "z$jq_selector" ]; then
 			logs_commands+=("${kubectl_cmd} ${timestamps} | ${colorify_lines_cmd}");
 		else
-			logs_commands+=("${kubectl_cmd} | jq ${jq_flags} --unbuffered -j -r -R --stream '. as \$line | try (fromjson | ((select(.level == \"warn\") | \"\u001b[1;33mWARNING\u001b[39m\"),(select(.level == \"error\") | \"\u001b[1;31mERROR\u001b[39m\")),\" \",$jq_selector,\"\n\") catch \$line,\"\n\"' | ${colorify_lines_cmd}");
+			logs_commands+=("${kubectl_cmd} | jq ${jq_flags} --unbuffered -j -r -R --stream '. as \$line | try (fromjson | ((select(.level == \"warn\") | \"\u001b[1;33mWARNING\u001b[39m\"),(select(.level == \"error\") | \"\u001b[1;31mERROR\u001b[39m\")),\" \",$jq_selector) catch \$line,\"\n\"' | ${colorify_lines_cmd}");
 		fi
 
 		# There are only 11 usable colors
